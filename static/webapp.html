@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Moliyaviy panel</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  html, body { margin:0; padding:0; background:#14160f; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo } = React;
+
+const tg = window.Telegram ? window.Telegram.WebApp : null;
+if (tg) { tg.ready(); tg.expand(); }
+const USER_ID = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user)
+  ? tg.initDataUnsafe.user.id
+  : new URLSearchParams(location.search).get("user_id");
+
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+function formatSum(n) {
+  const num = Number(n) || 0;
+  return num.toLocaleString("ru-RU");
+}
+function isToday(iso) {
+  const d = new Date(iso);
+  const t = new Date();
+  return d.getDate() === t.getDate() && d.getMonth() === t.getMonth() && d.getFullYear() === t.getFullYear();
+}
+function formatDate(iso) {
+  const d = new Date(iso);
+  const days = ["Yak", "Dush", "Sesh", "Chor", "Pay", "Jum", "Shan"];
+  const months = ["Yan", "Fev", "Mar", "Apr", "May", "Iyn", "Iyl", "Avg", "Sen", "Okt", "Noy", "Dek"];
+  return `${d.getDate()} ${months[d.getMonth()]}, ${days[d.getDay()]}`;
+}
+
+async function apiGet() {
+  const res = await fetch(`/api/entries?user_id=${USER_ID}`);
+  if (!res.ok) return [];
+  return res.json();
+}
+async function apiAdd(entry) {
+  await fetch(`/api/entries`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...entry, user_id: USER_ID }),
+  });
+}
+async function apiDelete(id) {
+  await fetch(`/api/entries/${id}?user_id=${USER_ID}`, { method: "DELETE" });
+}
+
+const TYPE_META = {
+  harajat: { label: "Harajat", color: "#d97757", icon: "arrow-down-circle" },
+  daromad: { label: "Daromad", color: "#8fae5c", icon: "arrow-up-circle" },
+  qarz: { label: "Qarz", color: "#c9a24a", icon: "list-checks" },
+};
+
+function Icon({ name, size = 16, color = "currentColor" }) {
+  return React.createElement("i", {
+    "data-lucide": name,
+    style: { width: size, height: size, color, display: "inline-flex" },
+  });
+}
+
+function MoliyaviyPanel() {
+  const [entries, setEntries] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [page, setPage] = useState("panel");
+  const [qarzDir, setQarzDir] = useState("menga");
+
+  const [name, setName] = useState("");
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const [qarzAction, setQarzAction] = useState("qoshish");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    apiGet().then((data) => { setEntries(data); setLoaded(true); });
+  }, []);
+
+  useEffect(() => {
+    setName(""); setAmount(""); setNote(""); setError(""); setQarzAction("qoshish");
+  }, [page, qarzDir]);
+
+  useEffect(() => {
+    if (window.lucide) window.lucide.createIcons();
+  });
+
+  const harajatEntries = entries.filter((e) => e.type === "harajat");
+  const daromadEntries = entries.filter((e) => e.type === "daromad");
+  const qarzMengaEntries = entries.filter((e) => e.type === "qarz" && e.direction === "menga");
+  const qarzMendanEntries = entries.filter((e) => e.type === "qarz" && e.direction === "mendan");
+
+  const todayHarajat = harajatEntries.filter((e) => isToday(e.date)).reduce((s, e) => s + e.amount, 0);
+  const todayDaromad = daromadEntries.filter((e) => isToday(e.date)).reduce((s, e) => s + e.amount, 0);
+
+  const qarzMengaTotal = qarzMengaEntries.reduce((s, e) => s + (e.action === "qoshish" ? e.amount : -e.amount), 0);
+  const qarzMendanTotal = qarzMendanEntries.reduce((s, e) => s + (e.action === "qoshish" ? e.amount : -e.amount), 0);
+
+  const totalHarajat = harajatEntries.reduce((s, e) => s + e.amount, 0);
+  const totalDaromad = daromadEntries.reduce((s, e) => s + e.amount, 0);
+  const sofFoyda = totalDaromad - totalHarajat;
+
+  const balancesMenga = useMemo(() => {
+    const map = {};
+    for (const e of qarzMengaEntries) map[e.name] = (map[e.name] || 0) + (e.action === "qoshish" ? e.amount : -e.amount);
+    return map;
+  }, [qarzMengaEntries]);
+
+  const balancesMendan = useMemo(() => {
+    const map = {};
+    for (const e of qarzMendanEntries) map[e.name] = (map[e.name] || 0) + (e.action === "qoshish" ? e.amount : -e.amount);
+    return map;
+  }, [qarzMendanEntries]);
+
+  const recent = [...entries].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 6);
+
+  async function handleSubmitMoney(type) {
+    return async (e) => {
+      e.preventDefault();
+      setError("");
+      const num = Number(amount);
+      if (!amount || isNaN(num) || num <= 0) { setError("Summani to'g'ri kiriting"); return; }
+      const entry = { id: uid(), type, amount: num, note: note.trim(), date: new Date().toISOString() };
+      setEntries((prev) => [entry, ...prev]);
+      setAmount(""); setNote("");
+      await apiAdd(entry);
+    };
+  }
+
+  async function handleSubmitQarz(e) {
+    e.preventDefault();
+    setError("");
+    const trimmedName = name.trim();
+    const num = Number(amount);
+    if (!trimmedName) { setError("Ismni kiriting"); return; }
+    if (!amount || isNaN(num) || num <= 0) { setError("Summani to'g'ri kiriting"); return; }
+    const entry = {
+      id: uid(), type: "qarz", direction: qarzDir, action: qarzAction,
+      name: trimmedName, amount: num, note: note.trim(), date: new Date().toISOString(),
+    };
+    setEntries((prev) => [entry, ...prev]);
+    setName(""); setAmount(""); setNote("");
+    await apiAdd(entry);
+  }
+
+  async function handleDelete(id) {
+    setEntries((prev) => prev.filter((e) => e.id !== id));
+    await apiDelete(id);
+  }
+
+  return (
+    <div style={styles.page}>
+      <div style={styles.container}>
+        <header style={styles.header}>
+          <div style={styles.headerIcon}><Icon name="wallet" size={20} color="#0e1108" /></div>
+          <div>
+            <h1 style={styles.title}>Moliyaviy panel</h1>
+            <p style={styles.subtitle}>Harajat, daromad va qarizlar — bittada</p>
+          </div>
+        </header>
+
+        {page === "panel" && (
+          <React.Fragment>
+            <div style={styles.summaryGrid2}>
+              <div style={{ ...styles.bigCard, borderColor: "#4a3324" }}>
+                <div style={styles.summaryLabel}><Icon name="trending-down" size={14} /> Bugungi harajat</div>
+                <div style={{ ...styles.bigValue, color: "#d97757" }}>{formatSum(todayHarajat)}</div>
+              </div>
+              <div style={{ ...styles.bigCard, borderColor: "#3a4530" }}>
+                <div style={styles.summaryLabel}><Icon name="trending-up" size={14} /> Bugungi daromad</div>
+                <div style={{ ...styles.bigValue, color: "#8fae5c" }}>{formatSum(todayDaromad)}</div>
+              </div>
+              <div style={{ ...styles.bigCard, borderColor: "#4a4020" }}>
+                <div style={styles.summaryLabel}><Icon name="arrow-left" size={14} /> Menga qarizdorlar</div>
+                <div style={{ ...styles.bigValue, color: "#c9a24a" }}>{formatSum(qarzMengaTotal)}</div>
+              </div>
+              <div style={{ ...styles.bigCard, borderColor: "#4a2424" }}>
+                <div style={styles.summaryLabel}><Icon name="arrow-right" size={14} /> Mening qarizim</div>
+                <div style={{ ...styles.bigValue, color: "#d97757" }}>{formatSum(qarzMendanTotal)}</div>
+              </div>
+            </div>
+
+            <div style={{ ...styles.netCard, borderColor: sofFoyda >= 0 ? "#3a4530" : "#4a3324" }}>
+              <span style={styles.netLabel}>Sof holat (daromad − harajat, jami)</span>
+              <span style={{ ...styles.netValue, color: sofFoyda >= 0 ? "#8fae5c" : "#d97757" }}>
+                {sofFoyda >= 0 ? "+" : ""}{formatSum(sofFoyda)}
+              </span>
+            </div>
+
+            <div style={styles.listSection}>
+              <div style={styles.listHeader}>So'nggi harakatlar</div>
+              {recent.length === 0 ? (
+                <div style={styles.empty}>Hali hech narsa qo'shilmagan.</div>
+              ) : (
+                <div style={styles.list}>
+                  {recent.map((e) => {
+                    const meta = TYPE_META[e.type];
+                    const isDebt = e.type === "qarz";
+                    const sign = isDebt ? (e.action === "qoshish" ? "+" : "−") : (e.type === "daromad" ? "+" : "−");
+                    const label = isDebt
+                      ? `${e.name} · ${e.direction === "menga" ? "menga qarz" : "mendan qarz"}`
+                      : (e.note || meta.label);
+                    return (
+                      <div key={e.id} style={styles.row}>
+                        <div style={styles.rowLeft}>
+                          <Icon name={meta.icon} size={16} color={meta.color} />
+                          <div>
+                            <div style={styles.rowName}>{label}</div>
+                            <div style={styles.rowMeta}>{formatDate(e.date)}</div>
+                          </div>
+                        </div>
+                        <span style={{ ...styles.rowAmount, color: meta.color }}>
+                          {sign}{formatSum(e.amount)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </React.Fragment>
+        )}
+
+        {page === "harajat" && (
+          <React.Fragment>
+            <div style={{ ...styles.singleCard, borderColor: "#4a3324" }}>
+              <div style={styles.summaryLabel}>Bugungi harajat</div>
+              <div style={{ ...styles.bigValue, color: "#d97757" }}>{formatSum(todayHarajat)}</div>
+              <div style={styles.subMuted}>Jami: {formatSum(totalHarajat)}</div>
+            </div>
+            <FormMoney color="#d97757" placeholder="Nimaga (masalan: taksi, ovqat)"
+              amount={amount} setAmount={setAmount} note={note} setNote={setNote}
+              error={error} onSubmit={(e) => handleSubmitMoney("harajat").then(fn => fn(e))} label="Harajat qo'shish" />
+            <EntryList list={harajatEntries} color="#d97757" sign="−" onDelete={handleDelete} emptyText="Hali harajat kiritilmagan." />
+          </React.Fragment>
+        )}
+
+        {page === "daromad" && (
+          <React.Fragment>
+            <div style={{ ...styles.singleCard, borderColor: "#3a4530" }}>
+              <div style={styles.summaryLabel}>Bugungi daromad</div>
+              <div style={{ ...styles.bigValue, color: "#8fae5c" }}>{formatSum(todayDaromad)}</div>
+              <div style={styles.subMuted}>Jami: {formatSum(totalDaromad)}</div>
+            </div>
+            <FormMoney color="#8fae5c" placeholder="Manba (masalan: video, buyurtma)"
+              amount={amount} setAmount={setAmount} note={note} setNote={setNote}
+              error={error} onSubmit={(e) => handleSubmitMoney("daromad").then(fn => fn(e))} label="Daromad qo'shish" />
+            <EntryList list={daromadEntries} color="#8fae5c" sign="+" onDelete={handleDelete} emptyText="Hali daromad kiritilmagan." />
+          </React.Fragment>
+        )}
+
+        {page === "qarizlar" && (
+          <React.Fragment>
+            <div style={styles.tabs}>
+              <button onClick={() => setQarzDir("menga")}
+                style={{ ...styles.tabBtn, ...(qarzDir === "menga" ? styles.tabBtnActiveGold : {}) }}>
+                <Icon name="arrow-left" size={15} /> Menga qarz
+              </button>
+              <button onClick={() => setQarzDir("mendan")}
+                style={{ ...styles.tabBtn, ...(qarzDir === "mendan" ? styles.tabBtnActiveRed : {}) }}>
+                <Icon name="arrow-right" size={15} /> Mening qarizim
+              </button>
+            </div>
+
+            <div style={{ ...styles.singleCard, borderColor: qarzDir === "menga" ? "#4a4020" : "#4a2424" }}>
+              <div style={styles.summaryLabel}>
+                {qarzDir === "menga" ? "Jami menga qarizdorlar" : "Jami mening qarizim"}
+              </div>
+              <div style={{ ...styles.bigValue, color: qarzDir === "menga" ? "#c9a24a" : "#d97757" }}>
+                {formatSum(qarzDir === "menga" ? qarzMengaTotal : qarzMendanTotal)}
+              </div>
+            </div>
+
+            <form onSubmit={handleSubmitQarz} style={styles.form}>
+              <input style={styles.input} placeholder="Ism" value={name} onChange={(e) => setName(e.target.value)} />
+              <input style={styles.input} placeholder="Summa" inputMode="numeric" value={amount}
+                onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ""))} />
+              <input style={styles.input} placeholder="Izoh (ixtiyoriy)" value={note} onChange={(e) => setNote(e.target.value)} />
+              <div style={styles.actionRow}>
+                <button type="button" onClick={() => setQarzAction("qoshish")}
+                  style={{ ...styles.smallToggle, ...(qarzAction === "qoshish" ? styles.smallToggleActiveAdd : {}) }}>
+                  <Icon name="plus" size={13} /> {qarzDir === "menga" ? "Qarz berdim" : "Qarz oldim"}
+                </button>
+                <button type="button" onClick={() => setQarzAction("minus")}
+                  style={{ ...styles.smallToggle, ...(qarzAction === "minus" ? styles.smallToggleActiveMinus : {}) }}>
+                  <Icon name="minus" size={13} /> To'lov qildi{qarzDir === "mendan" ? "m" : ""}
+                </button>
+              </div>
+              {error && <div style={styles.error}>{error}</div>}
+              <button type="submit"
+                style={{ ...styles.submitBtn, background: qarzAction === "qoshish" ? "#c9a24a" : "#8fae5c" }}>
+                Saqlash
+              </button>
+            </form>
+
+            {Object.keys(qarzDir === "menga" ? balancesMenga : balancesMendan).length > 0 && (
+              <div style={styles.balanceStrip}>
+                {Object.entries(qarzDir === "menga" ? balancesMenga : balancesMendan).map(([n, bal]) => (
+                  <div key={n} style={styles.balancePill}>
+                    <Icon name="user" size={12} />
+                    <span style={{ fontWeight: 600 }}>{n}</span>
+                    <span style={{ color: bal > 0 ? "#c9a24a" : bal < 0 ? "#8fae5c" : "#8a8f83" }}>{formatSum(bal)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <EntryList
+              list={qarzDir === "menga" ? qarzMengaEntries : qarzMendanEntries}
+              color={qarzDir === "menga" ? "#c9a24a" : "#d97757"}
+              onDelete={handleDelete}
+              isQarz
+              emptyText="Hali yozuv yo'q."
+            />
+          </React.Fragment>
+        )}
+      </div>
+
+      <nav style={styles.bottomNav}>
+        {[
+          { id: "panel", label: "Panel", icon: "home" },
+          { id: "harajat", label: "Harajat", icon: "arrow-down-circle" },
+          { id: "daromad", label: "Daromad", icon: "arrow-up-circle" },
+          { id: "qarizlar", label: "Qarizlar", icon: "list-checks" },
+        ].map(({ id, label, icon }) => (
+          <button key={id} onClick={() => setPage(id)}
+            style={{ ...styles.navBtn, color: page === id ? "#e8e4d8" : "#6b7065" }}>
+            <Icon name={icon} size={19} />
+            <span style={styles.navLabel}>{label}</span>
+          </button>
+        ))}
+      </nav>
+    </div>
+  );
+}
+
+function FormMoney({ color, placeholder, amount, setAmount, note, setNote, error, onSubmit, label }) {
+  return (
+    <form onSubmit={onSubmit} style={styles.form}>
+      <input style={styles.input} placeholder="Summa" inputMode="numeric" value={amount}
+        onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ""))} />
+      <input style={styles.input} placeholder={placeholder} value={note}
+        onChange={(e) => setNote(e.target.value)} />
+      {error && <div style={styles.error}>{error}</div>}
+      <button type="submit" style={{ ...styles.submitBtn, background: color }}>
+        <Icon name="plus" size={16} /> {label}
+      </button>
+    </form>
+  );
+}
+
+function EntryList({ list, color, sign, onDelete, isQarz, emptyText }) {
+  return (
+    <div style={styles.listSection}>
+      <div style={styles.listHeader}>
+        Yozuvlar <span style={styles.listCount}>{list.length}</span>
+      </div>
+      {list.length === 0 ? (
+        <div style={styles.empty}>{emptyText}</div>
+      ) : (
+        <div style={styles.list}>
+          {list.map((e) => (
+            <div key={e.id} style={styles.row}>
+              <div style={styles.rowLeft}>
+                <div style={{ ...styles.dot, background: isQarz ? (e.action === "qoshish" ? "#c9a24a" : "#8fae5c") : color }} />
+                <div>
+                  <div style={styles.rowName}>{isQarz ? e.name : (e.note || "—")}</div>
+                  <div style={styles.rowMeta}>
+                    {formatDate(e.date)}
+                    {isQarz ? ` · ${e.action === "qoshish" ? "qo'shildi" : "to'landi"}` : ""}
+                  </div>
+                </div>
+              </div>
+              <div style={styles.rowRight}>
+                <span style={{ ...styles.rowAmount, color: isQarz ? (e.action === "qoshish" ? "#c9a24a" : "#8fae5c") : color }}>
+                  {isQarz ? (e.action === "qoshish" ? "+" : "−") : sign}{formatSum(e.amount)}
+                </span>
+                <button style={styles.deleteBtn} onClick={() => onDelete(e.id)}><Icon name="trash-2" size={14} /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const styles = {
+  page: { minHeight: "100vh", background: "#14160f", fontFamily: "'Space Grotesk', sans-serif", color: "#e8e4d8", paddingBottom: 78 },
+  container: { maxWidth: 480, margin: "0 auto", padding: "20px 14px 20px" },
+  header: { display: "flex", alignItems: "center", gap: 12, marginBottom: 18 },
+  headerIcon: { width: 38, height: 38, borderRadius: 10, background: "#c9d98f", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  title: { margin: 0, fontSize: 19, fontWeight: 700, letterSpacing: -0.3 },
+  subtitle: { margin: "2px 0 0", fontSize: 12.5, color: "#8a8f7d" },
+  summaryGrid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 },
+  bigCard: { background: "#1a1c14", border: "1px solid", borderRadius: 12, padding: "12px 12px" },
+  singleCard: { background: "#1a1c14", border: "1px solid", borderRadius: 12, padding: "12px 14px", marginBottom: 14 },
+  summaryLabel: { display: "flex", alignItems: "center", gap: 4, fontSize: 10.5, color: "#8a8f7d", marginBottom: 6, fontFamily: "monospace" },
+  bigValue: { fontSize: 18, fontWeight: 700, fontFamily: "monospace" },
+  subMuted: { fontSize: 11, color: "#6b7065", marginTop: 4, fontFamily: "monospace" },
+  netCard: { display: "flex", alignItems: "center", justifyContent: "space-between", background: "#1a1c14", border: "1px solid", borderRadius: 12, padding: "12px 14px", marginBottom: 18 },
+  netLabel: { fontSize: 12, color: "#8a8f7d" },
+  netValue: { fontSize: 16, fontWeight: 700, fontFamily: "monospace" },
+  tabs: { display: "flex", gap: 8, marginBottom: 14 },
+  tabBtn: { flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px 8px", borderRadius: 10, border: "1px solid #2c3024", background: "#1a1c14", color: "#8a8f7d", fontWeight: 600, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" },
+  tabBtnActiveGold: { background: "#241f14", borderColor: "#c9a24a", color: "#e0c583" },
+  tabBtnActiveRed: { background: "#241614", borderColor: "#d97757", color: "#
