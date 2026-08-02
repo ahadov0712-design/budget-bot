@@ -1,4 +1,13 @@
 <!DOCTYPE html>
+function Icon({ name, size = 16, color = "currentColor" }) {
+  return React.createElement("i", {
+    "data-lucide": name,
+    style: { width: size, height: size, color, display: "inline-flex" },
+  });
+}
+
+function MoliyaviyPanel() {
+      <!DOCTYPE html>
 <html lang="uz">
 <head>
 <meta charset="UTF-8" />
@@ -11,10 +20,19 @@
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <style>
   html, body { margin:0; padding:0; background:#14160f; }
+  #error-box { display:none; color:#eb9f80; padding:16px; font-family:monospace; font-size:12px; white-space:pre-wrap; background:#1a1c14; }
 </style>
 </head>
 <body>
+<div id="error-box"></div>
 <div id="root"></div>
+<script>
+  window.onerror = function(msg, url, line, col, error) {
+    var box = document.getElementById('error-box');
+    box.style.display = 'block';
+    box.textContent = 'XATO: ' + msg + '\nQator: ' + line + ':' + col + '\n' + (error && error.stack ? error.stack : '');
+  };
+</script>
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo } = React;
 
@@ -412,7 +430,4 @@ const styles = {
   netCard: { display: "flex", alignItems: "center", justifyContent: "space-between", background: "#1a1c14", border: "1px solid", borderRadius: 12, padding: "12px 14px", marginBottom: 18 },
   netLabel: { fontSize: 12, color: "#8a8f7d" },
   netValue: { fontSize: 16, fontWeight: 700, fontFamily: "monospace" },
-  tabs: { display: "flex", gap: 8, marginBottom: 14 },
-  tabBtn: { flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px 8px", borderRadius: 10, border: "1px solid #2c3024", background: "#1a1c14", color: "#8a8f7d", fontWeight: 600, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" },
-  tabBtnActiveGold: { background: "#241f14", borderColor: "#c9a24a", color: "#e0c583" },
-  tabBtnActiveRed: { background: "#241614", borderColor: "#d97757", color: "#
+  tabs: { display: "flex", gap: 8, marginBot
