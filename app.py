@@ -6,11 +6,11 @@ from flask import Flask, request
 import requests
 
 # ============ SOZLAMALAR ============
-BOT_TOKEN = "SENING_TOKEN_BU_YERGA"  # @BotFather dan olgan tokening
+BOT_TOKEN = "8926932530:AAEL9u6BD0V3cmbb8cfC-LjFm6PfQfg3u_8"  # @BotFather dan olgan tokening
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 DB_PATH = os.path.join(os.path.dirname(__file__), "budget.db")
 
-GEMINI_API_KEY = "SENING_GEMINI_KALITING"  # aistudio.google.com dan olgan kalit
+GEMINI_API_KEY = "AQ.Ab8RN6JowELmm7EjMG3Dm0sdHUldfClMwQfUPZbckHVOWuAQsw"  # aistudio.google.com dan olgan kalit
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
 
 app = Flask(__name__)
