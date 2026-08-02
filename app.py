@@ -10,7 +10,7 @@ BOT_TOKEN = "8926932530:AAEL9u6BD0V3cmbb8cfC-LjFm6PfQfg3u_8"  # @BotFather dan o
 API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 DB_PATH = os.path.join(os.path.dirname(__file__), "budget.db")
 
-GEMINI_API_KEY = "AQ.Ab8RN6JowELmm7EjMG3Dm0sdHUldfClMwQfUPZbckHVOWuAQsw"  # aistudio.google.com dan olgan kalit
+GEMINI_API_KEY = "AIzaSyCwy6Ua-GZL0M1_F4nSBtxOc6X9d1392OE"  # aistudio.google.com dan olgan kalit
 GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
 
 app = Flask(__name__)
@@ -46,11 +46,26 @@ def init_db():
             created_at TEXT NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS entries (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            type TEXT NOT NULL,        -- 'harajat' | 'daromad' | 'qarz'
+            direction TEXT,            -- 'menga' | 'mendan' (faqat qarz uchun)
+            action TEXT,               -- 'qoshish' | 'minus' (faqat qarz uchun)
+            name TEXT,                 -- qarzdor ismi (faqat qarz uchun)
+            amount REAL NOT NULL,
+            note TEXT,
+            date TEXT NOT NULL
+        )
+    """)
     conn.commit()
     conn.close()
 
 
 # ============ TELEGRAM YORDAMCHI ============
+WEBAPP_URL = "https://budget-bot-74xv.onrender.com/webapp"
+
 MAIN_KEYBOARD = {
     "keyboard": [
         ["📊 Balans", "📌 Qarzlar"],
@@ -58,6 +73,12 @@ MAIN_KEYBOARD = {
         ["❓ Yordam"],
     ],
     "resize_keyboard": True
+}
+
+WEBAPP_KEYBOARD = {
+    "inline_keyboard": [
+        [{"text": "🗂 Moliyaviy panelni ochish", "web_app": {"url": WEBAPP_URL}}]
+    ]
 }
 
 
@@ -299,7 +320,8 @@ HELP_TEXT = (
     "/qarzlar — faol qarzlar ro'yxati\n\n"
     "🤖 /tahlil — AI orqali moliyaviy maslahat olish\n"
     "🎙 Yozish o'rniga ovozli xabar ham yuborsang bo'ladi, masalan:\n"
-    "  \"Besh yuz ming so'm oylik oldim\" yoki \"Yigirma besh ming taksiga berdim\"\n"
+    "  \"Besh yuz ming so'm oylik oldim\" yoki \"Yigirma besh ming taksiga berdim\"\n\n"
+    "🗂 /panel — chiroyli web-oyna orqali boshqarish\n"
 )
 
 
@@ -394,6 +416,13 @@ def handle_text(chat_id, user_id, text):
         else:
             send_message(chat_id, f"'{name}' nomli faol qarz topilmadi.")
 
+    elif text in ("/panel", "🗂 Panel"):
+        requests.post(f"{API_URL}/sendMessage", json={
+            "chat_id": chat_id,
+            "text": "🗂 Moliyaviy panelni ochish uchun pastdagi tugmani bos:",
+            "reply_markup": WEBAPP_KEYBOARD
+        })
+
     else:
         parsed = parse_entry(text)
         if parsed:
@@ -410,9 +439,78 @@ def index():
     return "Bot ishlayapti"
 
 
+# ============ WEB PANEL API ============
+from flask import jsonify, send_from_directory
+
+
+def get_entries(user_id):
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM entries WHERE user_id=? ORDER BY date DESC", (user_id,)
+    ).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        item = {
+            "id": r["id"], "type": r["type"], "amount": r["amount"],
+            "note": r["note"], "date": r["date"]
+        }
+        if r["type"] == "qarz":
+            item["direction"] = r["direction"]
+            item["action"] = r["action"]
+            item["name"] = r["name"]
+        result.append(item)
+    return result
+
+
+@app.route("/api/entries", methods=["GET"])
+def api_get_entries():
+    user_id = request.args.get("user_id", type=int)
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    return jsonify(get_entries(user_id))
+
+
+@app.route("/api/entries", methods=["POST"])
+def api_add_entry():
+    data = request.get_json(force=True)
+    user_id = data.get("user_id")
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    conn = get_db()
+    conn.execute(
+        """INSERT INTO entries (id, user_id, type, direction, action, name, amount, note, date)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
+        (
+            data["id"], user_id, data["type"],
+            data.get("direction"), data.get("action"), data.get("name"),
+            data["amount"], data.get("note", ""), data["date"]
+        )
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/entries/<entry_id>", methods=["DELETE"])
+def api_delete_entry(entry_id):
+    user_id = request.args.get("user_id", type=int)
+    conn = get_db()
+    conn.execute("DELETE FROM entries WHERE id=? AND user_id=?", (entry_id, user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/webapp")
+def webapp_page():
+    return send_from_directory(
+        os.path.join(os.path.dirname(__file__), "static"), "webapp.html"
+    )
+
+
 if __name__ == "__main__":
     init_db()
     app.run()
 else:
     init_db()
-  
